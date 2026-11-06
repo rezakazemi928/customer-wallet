@@ -19,7 +19,7 @@ class CustomerManager(BaseUserManager):
             extra_fields['email'] = self.normalize_email(extra_fields['email'])
         user = self.model(
             mobile=mobile,
-            national_code=national_code
+            national_code=national_code,
             **extra_fields,
         )
         user.set_password(password)
