@@ -7,7 +7,7 @@ from django.test import TestCase
 
 from customers.models import Customer
 
-from .models import Wallet
+from .models import Wallet, WalletType
 
 
 class WalletTests(TestCase):
@@ -17,8 +17,8 @@ class WalletTests(TestCase):
         )
 
     def test_customer_can_have_multiple_wallets(self):
-        first = Wallet.objects.create(user=self.customer, type='personal')
-        second = Wallet.objects.create(user=self.customer, type='savings')
+        first = Wallet.objects.create(user=self.customer, wallet_type=WalletType.objects.get_or_create(name='personal', defaults={'automatic_creation': True})[0])
+        second = Wallet.objects.create(user=self.customer, wallet_type=WalletType.objects.get_or_create(name='savings', defaults={'automatic_creation': False})[0])
         self.assertIsInstance(first.pk, int)
         self.assertGreater(second.pk, first.pk)
         self.assertEqual(self.customer.wallets.count(), 2)
@@ -28,7 +28,7 @@ class WalletTests(TestCase):
         self.assertIsNotNone(first.created_at)
 
     def test_balance_preserves_decimal_amount_and_updates_timestamp(self):
-        wallet = Wallet.objects.create(user=self.customer, type='personal')
+        wallet = Wallet.objects.create(user=self.customer, wallet_type=WalletType.objects.get_or_create(name='personal', defaults={'automatic_creation': True})[0])
         previous_update = wallet.updated_at
         wallet.balance = Decimal('123.45')
         wallet.save()
@@ -37,14 +37,14 @@ class WalletTests(TestCase):
         self.assertGreater(wallet.updated_at, previous_update)
 
     def test_negative_balance_fails_validation(self):
-        wallet = Wallet(user=self.customer, type='personal', balance=Decimal('-0.01'))
+        wallet = Wallet(user=self.customer, wallet_type=WalletType.objects.get_or_create(name='personal', defaults={'automatic_creation': True})[0], balance=Decimal('-0.01'))
         with self.assertRaises(ValidationError):
             wallet.full_clean()
 
     def test_database_rejects_negative_balance_on_insert_and_update(self):
         with self.assertRaises(IntegrityError), transaction.atomic():
-            Wallet.objects.create(user=self.customer, type='personal', balance=Decimal('-0.01'))
-        wallet = Wallet.objects.create(user=self.customer, type='personal')
+            Wallet.objects.create(user=self.customer, wallet_type=WalletType.objects.get_or_create(name='personal', defaults={'automatic_creation': True})[0], balance=Decimal('-0.01'))
+        wallet = Wallet.objects.create(user=self.customer, wallet_type=WalletType.objects.get_or_create(name='personal', defaults={'automatic_creation': True})[0])
         with self.assertRaises(IntegrityError), transaction.atomic():
             Wallet.objects.filter(pk=wallet.pk).update(balance=Decimal('-0.01'))
         wallet.refresh_from_db()
@@ -52,10 +52,10 @@ class WalletTests(TestCase):
 
     def test_wallet_requires_customer(self):
         with self.assertRaises(IntegrityError), transaction.atomic():
-            Wallet.objects.create(type='personal')
+            Wallet.objects.create(wallet_type=WalletType.objects.get_or_create(name='personal', defaults={'automatic_creation': True})[0])
 
     def test_customer_with_wallet_cannot_be_deleted(self):
-        Wallet.objects.create(user=self.customer, type='personal')
+        Wallet.objects.create(user=self.customer, wallet_type=WalletType.objects.get_or_create(name='personal', defaults={'automatic_creation': True})[0])
         with self.assertRaises(ProtectedError):
             self.customer.delete()
 
@@ -72,9 +72,9 @@ class WalletEndpointTests(TestCase):
         self.authorization = f'Bearer {create_access_token(self.customer)}'
 
     def test_lists_only_authenticated_customers_wallets(self):
-        first = Wallet.objects.create(user=self.customer, type='personal', balance=Decimal('123.45'))
-        second = Wallet.objects.create(user=self.customer, type='savings')
-        Wallet.objects.create(user=self.other, type='private')
+        first = Wallet.objects.create(user=self.customer, wallet_type=WalletType.objects.get_or_create(name='personal', defaults={'automatic_creation': True})[0], balance=Decimal('123.45'))
+        second = Wallet.objects.create(user=self.customer, wallet_type=WalletType.objects.get_or_create(name='savings', defaults={'automatic_creation': False})[0])
+        Wallet.objects.create(user=self.other, wallet_type=WalletType.objects.get_or_create(name='private', defaults={'automatic_creation': False})[0])
         response = self.client.get(
             f'/api/wallets/?user_id={self.other.pk}', HTTP_AUTHORIZATION=self.authorization,
         )
@@ -83,7 +83,7 @@ class WalletEndpointTests(TestCase):
         self.assertEqual([wallet['id'] for wallet in wallets], [first.id, second.id])
         self.assertEqual(wallets[0]['balance'], '123.45')
         self.assertEqual(wallets[1]['balance'], '0.00')
-        self.assertEqual(wallets[0]['type'], 'personal')
+        self.assertEqual(wallets[0]['wallet_type_name'], 'personal')
         self.assertEqual(wallets[0]['user_id'], str(self.customer.pk))
         self.assertIn('created_at', wallets[0])
         self.assertIn('updated_at', wallets[0])
@@ -124,7 +124,7 @@ class WalletTransactionTests(TestCase):
         customer = Customer.objects.create_user(
             mobile='09123456789', national_code='0012345678', password='wallet-test-password',
         )
-        self.wallet = Wallet.objects.create(user=customer, type='personal', balance=Decimal('100.00'))
+        self.wallet = Wallet.objects.create(user=customer, wallet_type=WalletType.objects.get_or_create(name='personal', defaults={'automatic_creation': True})[0], balance=Decimal('100.00'))
 
     def test_wallet_has_multiple_transactions_with_exact_amounts(self):
         for kind in self.transaction_model.Type.values:

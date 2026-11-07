@@ -9,7 +9,7 @@ from django.test import TestCase, TransactionTestCase, skipUnlessDBFeature
 from customers.models import Customer
 from customers.tokens import create_access_token
 
-from .models import Wallet, WalletTransaction
+from .models import Wallet, WalletType, WalletTransaction
 from .services import change_balance
 
 
@@ -23,8 +23,8 @@ class TransactionEndpointTests(TestCase):
         self.user = Customer.objects.create_user(
             mobile='09123456789', national_code='0012345678', password='transaction-test-password',
         )
-        self.wallet = Wallet.objects.create(user=self.user, type='personal', balance=Decimal('100.00'))
-        self.url = f'/api/wallets/{self.wallet.pk}/transactions/'
+        self.wallet = Wallet.objects.create(user=self.user, wallet_type=WalletType.objects.get_or_create(name='personal', defaults={'automatic_creation': True})[0], balance=Decimal('100.00'))
+        self.url = f'/api/wallets/types/{self.wallet.wallet_type_id}/transactions/'
         self.auth = f'Bearer {create_access_token(self.user)}'
 
     def post(self, amount='25.00', kind='DECREASED', url=None):
@@ -54,8 +54,8 @@ class TransactionEndpointTests(TestCase):
         self.post()
         for kwargs in ({'amount': '26.00'},):
             self.assertEqual(self.post(**kwargs).status_code, 409)
-        other = Wallet.objects.create(user=self.user, type='savings')
-        self.assertEqual(self.post(kind='INCREASED', url=f'/api/wallets/{other.pk}/transactions/').status_code, 201)
+        other = Wallet.objects.create(user=self.user, wallet_type=WalletType.objects.get_or_create(name='savings', defaults={'automatic_creation': False})[0])
+        self.assertEqual(self.post(kind='INCREASED', url=f'/api/wallets/types/{other.wallet_type_id}/transactions/').status_code, 201)
         self.assertEqual(WalletTransaction.objects.count(), 2)
 
     def test_insufficient_balance_is_recorded_and_duplicate_blocked_after_topup(self):
@@ -72,9 +72,9 @@ class TransactionEndpointTests(TestCase):
         other = Customer.objects.create_user(
             mobile='09987654321', national_code='0098765432', password='other-test-password',
         )
-        wallet = Wallet.objects.create(user=other, type='private')
-        for wallet_id in (wallet.pk, wallet.pk + 100):
-            response = self.post(url=f'/api/wallets/{wallet_id}/transactions/')
+        wallet = Wallet.objects.create(user=other, wallet_type=WalletType.objects.get_or_create(name='private', defaults={'automatic_creation': False})[0])
+        for wallet_id in (wallet.wallet_type_id, wallet.wallet_type_id + 100):
+            response = self.post(url=f'/api/wallets/types/{wallet_id}/transactions/')
             self.assertEqual(response.status_code, 404)
         self.assertFalse(WalletTransaction.objects.exists())
 
@@ -83,9 +83,9 @@ class TransactionEndpointTests(TestCase):
         other = Customer.objects.create_user(
             mobile='09987654321', national_code='0098765432', password='other-test-password',
         )
-        wallet = Wallet.objects.create(user=other, type='personal')
+        wallet = Wallet.objects.create(user=other, wallet_type=WalletType.objects.get_or_create(name='personal', defaults={'automatic_creation': True})[0])
         self.auth = f'Bearer {create_access_token(other)}'
-        response = self.post(kind='INCREASED', url=f'/api/wallets/{wallet.pk}/transactions/')
+        response = self.post(kind='INCREASED', url=f'/api/wallets/types/{wallet.wallet_type_id}/transactions/')
         self.assertEqual(response.status_code, 201)
         self.assertEqual(self.redis.dbsize(), 2)
 
@@ -126,10 +126,10 @@ class TransactionEndpointTests(TestCase):
 
     def test_reservation_loss_before_commit_rolls_back_money(self):
         from .decorators import ReservationExpired
-        reservation = Mock(side_effect=[None, ReservationExpired])
+        reservation = Mock(side_effect=[None, None, ReservationExpired])
         with self.assertRaises(ReservationExpired):
             change_balance(
-                customer=self.user, wallet_id=self.wallet.pk,
+                customer=self.user, wallet_type_id=self.wallet.wallet_type_id,
                 kind='DECREASED', amount=Decimal('25.00'),
                 ensure_reservation=reservation,
             )
@@ -144,7 +144,7 @@ class ConcurrentTransactionTests(TransactionTestCase):
         self.user = Customer.objects.create_user(
             mobile='09123456789', national_code='0012345678', password='transaction-test-password',
         )
-        self.wallet = Wallet.objects.create(user=self.user, type='personal', balance=Decimal('100.00'))
+        self.wallet = Wallet.objects.create(user=self.user, wallet_type=WalletType.objects.get_or_create(name='personal', defaults={'automatic_creation': True})[0], balance=Decimal('100.00'))
 
     def run_requests(self, keys):
         barrier = Barrier(2)
@@ -153,7 +153,7 @@ class ConcurrentTransactionTests(TransactionTestCase):
             close_old_connections()
             try:
                 barrier.wait(timeout=10)
-                return change_balance(customer=self.user, wallet_id=self.wallet.pk,
+                return change_balance(customer=self.user, wallet_type_id=self.wallet.wallet_type_id,
                                       kind='DECREASED', amount=Decimal('75.00'))
             finally:
                 connection.close()

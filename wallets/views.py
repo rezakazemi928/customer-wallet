@@ -11,11 +11,13 @@ from .services import change_balance
 @require_GET
 @customer_token_required
 def list_wallets(request):
-    wallets = request.customer.wallets.order_by('id')
+    wallets = request.customer.wallets.select_related('wallet_type').order_by('id')
     return JsonResponse({'wallets': [
         {
             'id': wallet.id,
-            'type': wallet.type,
+            'wallet_type_id': wallet.wallet_type_id,
+            'wallet_type_name': wallet.wallet_type.name,
+            'withdrawable': wallet.wallet_type.withdrawable,
             'balance': str(wallet.balance),
             'user_id': str(wallet.user_id),
             'created_at': wallet.created_at.isoformat(),
@@ -30,9 +32,9 @@ def list_wallets(request):
 @customer_token_required
 @validate_transaction_request
 @redis_wallet_idempotency
-def create_transaction(request, wallet_id):
+def create_transaction(request, wallet_type_id):
     body, status_code = change_balance(
-        customer=request.customer, wallet_id=wallet_id,
+        customer=request.customer, wallet_type_id=wallet_type_id,
         kind=request.transaction_data['type'], amount=request.transaction_data['amount'],
         ensure_reservation=request.ensure_wallet_reservation,
     )

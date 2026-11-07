@@ -39,8 +39,8 @@ def get_redis():
                           socket_connect_timeout=2, socket_timeout=2)
 
 
-def transaction_cache_key(customer_id, wallet_id, kind):
-    return f'wallet-operation:{customer_id}:{wallet_id}:{kind}'
+def transaction_cache_key(customer_id, wallet_type_id, kind):
+    return f'wallet-type-operation:{customer_id}:{wallet_type_id}:{kind}'
 
 
 def validate_transaction_request(view):
@@ -73,9 +73,9 @@ def validate_transaction_request(view):
 def redis_wallet_idempotency(view):
     """Requires authenticated customer and validated transaction_data on request."""
     @wraps(view)
-    def wrapped(request, wallet_id, *args, **kwargs):
+    def wrapped(request, wallet_type_id, *args, **kwargs):
         client = get_redis()
-        key = transaction_cache_key(request.customer.pk, wallet_id, request.transaction_data['type'])
+        key = transaction_cache_key(request.customer.pk, wallet_type_id, request.transaction_data['type'])
         owner = f'IN_PROGRESS:{uuid4()}'
         try:
             if not client.set(key, owner, nx=True, ex=IN_PROGRESS_TTL):
@@ -93,7 +93,7 @@ def redis_wallet_idempotency(view):
         # Recheck after waiting for the wallet row lock, before changing money.
         request.ensure_wallet_reservation = ensure_reservation
         try:
-            response = view(request, wallet_id, *args, **kwargs)
+            response = view(request, wallet_type_id, *args, **kwargs)
         except ReservationExpired:
             return JsonResponse({'error': 'Request reservation expired. No balance change was committed.'}, status=409)
         except RedisError:

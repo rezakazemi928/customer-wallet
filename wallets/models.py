@@ -4,12 +4,29 @@ from django.core.validators import MinValueValidator
 from django.db import models
 
 
+class WalletType(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    name = models.CharField(max_length=50, unique=True)
+    withdrawable = models.BooleanField(default=True)
+    automatic_creation = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'wallet_types'
+
+    def __str__(self):
+        return self.name
+
+
 class Wallet(models.Model):
     id = models.BigAutoField(primary_key=True)
     user = models.ForeignKey(
         'customers.Customer', on_delete=models.PROTECT, related_name='wallets',
     )
-    type = models.CharField(max_length=50)
+    wallet_type = models.ForeignKey(
+        WalletType, on_delete=models.PROTECT, related_name='wallets',
+    )
     balance = models.DecimalField(
         max_digits=20, decimal_places=2, default=Decimal('0.00'),
         validators=[MinValueValidator(Decimal('0.00'))],
@@ -20,13 +37,14 @@ class Wallet(models.Model):
     class Meta:
         db_table = 'wallets'
         constraints = [
+            models.UniqueConstraint(fields=['user', 'wallet_type'], name='wallet_user_type_unique'),
             models.CheckConstraint(
                 condition=models.Q(balance__gte=0), name='wallet_balance_non_negative',
             ),
         ]
 
     def __str__(self):
-        return f'{self.id}: {self.type}'
+        return f'{self.id}: {self.wallet_type.name}'
 
 
 class WalletTransaction(models.Model):
