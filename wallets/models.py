@@ -70,3 +70,4 @@ class WalletTransaction(models.Model):
 
     def __str__(self):
         return f'{self.id}: {self.type} {self.amount} ({self.status})'
+

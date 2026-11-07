@@ -1,7 +1,11 @@
 from django.http import JsonResponse
-from django.views.decorators.http import require_GET
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_GET, require_POST
 
 from customers.tokens import customer_token_required
+
+from .decorators import redis_wallet_idempotency, validate_transaction_request
+from .services import change_balance
 
 
 @require_GET
@@ -19,3 +23,19 @@ def list_wallets(request):
         }
         for wallet in wallets
     ]})
+
+
+@csrf_exempt
+@require_POST
+@customer_token_required
+@validate_transaction_request
+@redis_wallet_idempotency
+def create_transaction(request, wallet_id):
+    body, status_code = change_balance(
+        customer=request.customer, wallet_id=wallet_id,
+        kind=request.transaction_data['type'], amount=request.transaction_data['amount'],
+        ensure_reservation=request.ensure_wallet_reservation,
+    )
+    response = JsonResponse(body, status=status_code)
+    response['Cache-Control'] = 'no-store'
+    return response
