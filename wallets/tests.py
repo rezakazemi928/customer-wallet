@@ -115,3 +115,53 @@ class WalletEndpointTests(TestCase):
     def test_post_is_not_allowed(self):
         response = self.client.post('/api/wallets/', HTTP_AUTHORIZATION=self.authorization)
         self.assertEqual(response.status_code, 405)
+
+
+class WalletTransactionTests(TestCase):
+    def setUp(self):
+        from .models import WalletTransaction
+        self.transaction_model = WalletTransaction
+        customer = Customer.objects.create_user(
+            mobile='09123456789', national_code='0012345678', password='wallet-test-password',
+        )
+        self.wallet = Wallet.objects.create(user=customer, type='personal', balance=Decimal('100.00'))
+
+    def test_wallet_has_multiple_transactions_with_exact_amounts(self):
+        for kind in self.transaction_model.Type.values:
+            record = self.transaction_model.objects.create(
+                wallet=self.wallet, type=kind, amount=Decimal('12.34'),
+            )
+            record.refresh_from_db()
+            self.assertEqual(record.amount, Decimal('12.34'))
+            self.assertEqual(record.status, 'PENDING')
+            self.assertEqual(record.wallet_id, self.wallet.pk)
+            self.assertIsNotNone(record.created_at)
+            previous_update = record.updated_at
+            record.status = self.transaction_model.Status.COMPLETED
+            record.save()
+            self.assertGreater(record.updated_at, previous_update)
+        self.assertEqual(self.wallet.transactions.count(), 2)
+        self.wallet.refresh_from_db()
+        self.assertEqual(self.wallet.balance, Decimal('100.00'))
+
+    def test_invalid_values_fail_validation_and_database_constraints(self):
+        for changes in (
+            {'amount': Decimal('0.00')}, {'amount': Decimal('-0.01')},
+            {'type': 'INVALID'}, {'status': 'INVALID'},
+        ):
+            fields = {'wallet': self.wallet, 'type': 'INCREASED', 'amount': Decimal('1.00')}
+            fields.update(changes)
+            with self.subTest(changes=changes):
+                with self.assertRaises(ValidationError):
+                    self.transaction_model(**fields).full_clean()
+                with self.assertRaises(IntegrityError), transaction.atomic():
+                    self.transaction_model.objects.create(**fields)
+
+    def test_wallet_with_history_is_protected_from_deletion(self):
+        self.transaction_model.objects.create(wallet=self.wallet, type='INCREASED', amount=Decimal('1.00'))
+        with self.assertRaises(ProtectedError):
+            self.wallet.delete()
+
+    def test_transaction_requires_wallet(self):
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            self.transaction_model.objects.create(type='INCREASED', amount=Decimal('1.00'))
