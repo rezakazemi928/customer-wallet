@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import uuid
+from typing import Any
 
 from django.contrib.auth.hashers import check_password, make_password
 from django.contrib.auth.models import BaseUserManager
@@ -8,7 +11,10 @@ from django.db import models
 class CustomerManager(BaseUserManager):
     use_in_migrations = True
 
-    def create_user(self, mobile, national_code, password=None, **extra_fields):
+    def create_user(
+        self, mobile: str, national_code: str, password: str | None = None,
+        **extra_fields: Any,
+    ) -> Customer:
         if not mobile:
             raise ValueError('Mobile is required.')
         if not password:
@@ -45,17 +51,17 @@ class Customer(models.Model):
     class Meta:
         db_table = 'customers'
 
-    def set_password(self, raw_password):
+    def set_password(self, raw_password: str) -> None:
         if not raw_password:
             raise ValueError('Password is required.')
         self.password = make_password(raw_password)
 
-    def check_password(self, raw_password):
+    def check_password(self, raw_password: str) -> bool:
         return check_password(raw_password, self.password)
 
-    def save(self, *args, **kwargs):
+    def save(self, *args: Any, **kwargs: Any) -> None:
         self.username = self.username or None
         super().save(*args, **kwargs)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.mobile

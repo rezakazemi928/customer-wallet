@@ -1,17 +1,19 @@
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 from uuid import UUID
+from typing import Any, cast
 
 import jwt
 from django.conf import settings
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 
 from .models import Customer
+from .types import CustomerRequest, TokenPayload, View
 
 TOKEN_LIFETIME_SECONDS = 3600
 
 
-def create_access_token(customer):
+def create_access_token(customer: Customer) -> str:
     now = datetime.now(timezone.utc)
     return jwt.encode(
         {'userId': str(customer.pk), 'iat': now,
@@ -21,7 +23,7 @@ def create_access_token(customer):
     )
 
 
-def decode_access_token(token):
+def decode_access_token(token: str) -> TokenPayload:
     payload = jwt.decode(
         token, settings.JWT_SIGNING_KEY, algorithms=['HS256'],
         options={'require': ['userId', 'iat', 'exp']},
@@ -33,12 +35,12 @@ def decode_access_token(token):
     if (type(payload['iat']) is not int or type(payload['exp']) is not int
             or not 0 < payload['exp'] - payload['iat'] <= TOKEN_LIFETIME_SECONDS):
         raise jwt.InvalidTokenError('Invalid token lifetime.')
-    return payload
+    return cast(TokenPayload, payload)
 
 
-def customer_token_required(view):
+def customer_token_required(view: View) -> View:
     @wraps(view)
-    def wrapped(request, *args, **kwargs):
+    def wrapped(request: CustomerRequest, *args: Any, **kwargs: Any) -> HttpResponse:
         parts = request.headers.get('Authorization', '').split()
         if len(parts) != 2 or parts[0].lower() != 'bearer':
             return JsonResponse({'error': 'Bearer token required.'}, status=401,

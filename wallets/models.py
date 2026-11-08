@@ -15,7 +15,7 @@ class WalletType(models.Model):
     class Meta:
         db_table = 'wallet_types'
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.name
 
 
@@ -43,7 +43,7 @@ class Wallet(models.Model):
             ),
         ]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f'{self.id}: {self.wallet_type.name}'
 
 
@@ -86,7 +86,7 @@ class WalletTransaction(models.Model):
             ),
         ]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f'{self.id}: {self.type} {self.amount} ({self.status})'
 
 

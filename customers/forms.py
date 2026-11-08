@@ -1,3 +1,5 @@
+from typing import Any
+
 from django import forms
 from django.contrib.auth.password_validation import validate_password
 
@@ -11,7 +13,7 @@ class CustomerRegistrationForm(forms.ModelForm):
         model = Customer
         fields = ('mobile', 'password', 'national_code')
 
-    def clean(self):
+    def clean(self) -> dict[str, Any]:
         cleaned_data = super().clean()
         if cleaned_data.get('password'):
             customer = Customer(**{

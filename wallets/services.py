@@ -1,4 +1,5 @@
 from decimal import Decimal
+from uuid import UUID
 
 from django.db import transaction
 
@@ -6,10 +7,15 @@ from customers.models import Customer
 
 from .models import Wallet, WalletTransaction, WalletType, WalletOperation
 
+from .types import OperationFingerprint, OperationResult, ReservationCheck
+
 MAX_BALANCE = Decimal('999999999999999999.99')
 
 
-def _apply_balance_change(*, customer, wallet_type_id, kind, amount, ensure_reservation=None):
+def _apply_balance_change(
+    *, customer: Customer, wallet_type_id: int, kind: str, amount: Decimal,
+    ensure_reservation: ReservationCheck | None = None,
+) -> OperationResult:
     with transaction.atomic():
         if ensure_reservation:
             ensure_reservation()
@@ -40,6 +46,7 @@ def _apply_balance_change(*, customer, wallet_type_id, kind, amount, ensure_rese
             wallet=wallet, type=kind, amount=amount,
             status=WalletTransaction.Status.FAILED if error else WalletTransaction.Status.COMPLETED,
         )
+        body: dict[str, str | int]
         if error:
             body, status_code = {'error': error, 'transaction_id': record.pk}, 400
         else:
@@ -57,11 +64,13 @@ def _apply_balance_change(*, customer, wallet_type_id, kind, amount, ensure_rese
         return body, status_code
 
 
-def operation_fingerprint(wallet_type_id, kind, amount):
+def operation_fingerprint(wallet_type_id: int, kind: str, amount: Decimal) -> OperationFingerprint:
     return {'wallet_type_id': wallet_type_id, 'type': kind, 'amount': format(amount, '.2f')}
 
 
-def find_operation_result(customer, request_id, fingerprint):
+def find_operation_result(
+    customer: Customer, request_id: UUID, fingerprint: OperationFingerprint,
+) -> OperationResult | None:
     operation = WalletOperation.objects.filter(user=customer, request_id=request_id).first()
     if operation is None:
         return None
@@ -70,7 +79,10 @@ def find_operation_result(customer, request_id, fingerprint):
     return operation.response, operation.status_code
 
 
-def change_balance(*, customer, wallet_type_id, kind, amount, request_id, ensure_reservation=None):
+def change_balance(
+    *, customer: Customer, wallet_type_id: int, kind: str, amount: Decimal,
+    request_id: UUID, ensure_reservation: ReservationCheck | None = None,
+) -> OperationResult:
     fingerprint = operation_fingerprint(wallet_type_id, kind, amount)
     with transaction.atomic():
         Customer.objects.select_for_update().get(pk=customer.pk)

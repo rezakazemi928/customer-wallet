@@ -1,14 +1,20 @@
+from __future__ import annotations
+
 import json
 import logging
 from functools import lru_cache, wraps
 from uuid import UUID, uuid4
+from typing import Any, cast
 
 from django.conf import settings
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
+
+from customers.types import View
 from redis import Redis
 from redis.exceptions import RedisError
 
 from .forms import WalletTransactionForm
+from .types import TransactionData, WalletRequest
 from .services import find_operation_result, operation_fingerprint
 
 logger = logging.getLogger(__name__)
@@ -35,18 +41,18 @@ class ReservationExpired(Exception):
 
 
 @lru_cache(maxsize=1)
-def get_redis():
+def get_redis() -> Redis:
     return Redis.from_url(settings.REDIS_URL, decode_responses=True,
                           socket_connect_timeout=2, socket_timeout=2)
 
 
-def transaction_cache_key(customer_id, request_id):
+def transaction_cache_key(customer_id: UUID, request_id: UUID) -> str:
     return f'wallet-request:{customer_id}:{request_id}'
 
 
-def validate_transaction_request(view):
+def validate_transaction_request(view: View) -> View:
     @wraps(view)
-    def wrapped(request, *args, **kwargs):
+    def wrapped(request: WalletRequest, *args: Any, **kwargs: Any) -> HttpResponse:
         if request.content_type != 'application/json':
             return JsonResponse({'error': 'Content-Type must be application/json.'}, status=415)
         try:
@@ -66,15 +72,15 @@ def validate_transaction_request(view):
         form = WalletTransactionForm(data)
         if not form.is_valid():
             return JsonResponse({'errors': dict(form.errors)}, status=400)
-        request.transaction_data = form.cleaned_data
+        request.transaction_data = cast(TransactionData, form.cleaned_data)
         return view(request, *args, **kwargs)
     return wrapped
 
 
-def redis_wallet_idempotency(view):
+def redis_wallet_idempotency(view: View) -> View:
     """Requires authenticated customer and validated transaction_data on request."""
     @wraps(view)
-    def wrapped(request, wallet_type_id, *args, **kwargs):
+    def wrapped(request: WalletRequest, wallet_type_id: int, *args: Any, **kwargs: Any) -> HttpResponse:
         try:
             request_id = UUID(request.headers.get('Idempotency-Key', ''))
         except (ValueError, TypeError, AttributeError):
@@ -84,7 +90,7 @@ def redis_wallet_idempotency(view):
             wallet_type_id, request.transaction_data['type'], request.transaction_data['amount'],
         )
 
-        def saved_response():
+        def saved_response() -> JsonResponse | None:
             result = find_operation_result(request.customer, request_id, fingerprint)
             if result is None:
                 return None
@@ -111,7 +117,7 @@ def redis_wallet_idempotency(view):
         except RedisError:
             return JsonResponse({'error': 'Duplicate-request protection is unavailable. Try again later.'}, status=503)
 
-        def ensure_reservation():
+        def ensure_reservation() -> None:
             if client.get(key) != owner:
                 raise ReservationExpired
 

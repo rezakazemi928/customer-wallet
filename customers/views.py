@@ -2,7 +2,7 @@ import json
 
 from django.contrib.auth.hashers import make_password
 from django.db import IntegrityError, transaction
-from django.http import JsonResponse
+from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.debug import sensitive_post_parameters
 from django.views.decorators.http import require_POST
@@ -15,7 +15,7 @@ from .tokens import TOKEN_LIFETIME_SECONDS, create_access_token
 @csrf_exempt
 @sensitive_post_parameters('password')
 @require_POST
-def register(request):
+def register(request: HttpRequest) -> JsonResponse:
     # Public JSON registration does not authenticate sessions or log users in.
     if request.content_type != 'application/json':
         return JsonResponse({'error': 'Content-Type must be application/json.'}, status=415)
@@ -66,7 +66,7 @@ def register(request):
 @csrf_exempt
 @sensitive_post_parameters('password')
 @require_POST
-def login(request):
+def login(request: HttpRequest) -> JsonResponse:
     if request.content_type != 'application/json':
         return JsonResponse({'error': 'Content-Type must be application/json.'}, status=415)
     try:

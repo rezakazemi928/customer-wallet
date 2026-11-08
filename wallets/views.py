@@ -3,6 +3,9 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 
 from customers.tokens import customer_token_required
+from customers.types import CustomerRequest
+
+from .types import WalletRequest
 
 from .decorators import redis_wallet_idempotency, validate_transaction_request
 from .services import change_balance
@@ -10,7 +13,7 @@ from .services import change_balance
 
 @require_GET
 @customer_token_required
-def list_wallets(request):
+def list_wallets(request: CustomerRequest) -> JsonResponse:
     wallets = request.customer.wallets.select_related('wallet_type').order_by('id')
     return JsonResponse({'wallets': [
         {
@@ -32,7 +35,7 @@ def list_wallets(request):
 @customer_token_required
 @validate_transaction_request
 @redis_wallet_idempotency
-def create_transaction(request, wallet_type_id):
+def create_transaction(request: WalletRequest, wallet_type_id: int) -> JsonResponse:
     body, status_code = change_balance(
         customer=request.customer, wallet_type_id=wallet_type_id,
         kind=request.transaction_data['type'], amount=request.transaction_data['amount'],
