@@ -37,6 +37,7 @@ def create_transaction(request, wallet_type_id):
         customer=request.customer, wallet_type_id=wallet_type_id,
         kind=request.transaction_data['type'], amount=request.transaction_data['amount'],
         ensure_reservation=request.ensure_wallet_reservation,
+        request_id=request.wallet_request_id,
     )
     response = JsonResponse(body, status=status_code)
     response['Cache-Control'] = 'no-store'

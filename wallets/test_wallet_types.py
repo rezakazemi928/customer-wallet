@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 from threading import Barrier
@@ -17,16 +19,18 @@ class WalletTypeTests(TestCase):
     def setUp(self):
         self.user = Customer.objects.create_user(mobile='09123456789', national_code='0012345678', password='test-password')
         self.kind = WalletType.objects.create(name='automatic', automatic_creation=True)
+        self.request_id = str(uuid4())
         self.redis = fakeredis.FakeRedis(decode_responses=True)
         patcher = patch('wallets.decorators.get_redis', return_value=self.redis)
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def post(self, kind='INCREASED', amount='10.00'):
+    def post(self, kind='INCREASED', amount='10.00', key=None):
         return self.client.post(
             f'/api/wallets/types/{self.kind.pk}/transactions/',
             data={'type': kind, 'amount': amount}, content_type='application/json',
             HTTP_AUTHORIZATION=f'Bearer {create_access_token(self.user)}',
+            HTTP_IDEMPOTENCY_KEY=key or self.request_id,
         )
 
     def test_personal_type_is_seeded(self):
@@ -40,7 +44,7 @@ class WalletTypeTests(TestCase):
         wallet = self.user.wallets.get(wallet_type=self.kind)
         self.assertEqual(wallet.balance, Decimal('10.00'))
         self.assertEqual(response.json()['wallet_type_id'], self.kind.pk)
-        self.assertEqual(self.post().status_code, 409)
+        self.assertEqual(self.post().status_code, 201)
         self.assertEqual(self.user.wallets.count(), 1)
         self.assertEqual(wallet.transactions.count(), 1)
 
@@ -55,15 +59,15 @@ class WalletTypeTests(TestCase):
         self.assertEqual(self.post().status_code, 404)
         self.assertFalse(self.user.wallets.exists())
         Wallet.objects.create(user=self.user, wallet_type=self.kind)
-        self.assertEqual(self.post().status_code, 201)
+        self.assertEqual(self.post(key=str(uuid4())).status_code, 201)
 
     def test_nonwithdrawable_wallet_rejects_decrease_but_accepts_increase(self):
         self.kind.withdrawable = False
         self.kind.save()
         self.assertEqual(self.post(kind='DECREASED').status_code, 403)
         self.assertFalse(self.user.wallets.exists())
-        self.assertEqual(self.post().status_code, 201)
-        self.assertEqual(self.post(kind='DECREASED').status_code, 409)
+        self.assertEqual(self.post(key=str(uuid4())).status_code, 201)
+        self.assertEqual(self.post(kind='DECREASED').status_code, 403)
         wallet = self.user.wallets.get()
         self.assertEqual(wallet.balance, Decimal('10.00'))
         self.assertEqual(wallet.transactions.count(), 1)
@@ -96,7 +100,7 @@ class ConcurrentWalletCreationTests(TransactionTestCase):
             try:
                 barrier.wait(timeout=10)
                 return change_balance(customer=user, wallet_type_id=kind.pk,
-                                      kind='INCREASED', amount=Decimal('10.00'))
+                                      kind='INCREASED', amount=Decimal('10.00'), request_id=uuid4())
             finally:
                 connection.close()
 

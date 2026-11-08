@@ -89,3 +89,21 @@ class WalletTransaction(models.Model):
     def __str__(self):
         return f'{self.id}: {self.type} {self.amount} ({self.status})'
 
+
+class WalletOperation(models.Model):
+    user = models.ForeignKey('customers.Customer', on_delete=models.PROTECT)
+    request_id = models.UUIDField()
+    fingerprint = models.JSONField()
+    transaction = models.OneToOneField(
+        WalletTransaction, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='operation',
+    )
+    response = models.JSONField()
+    status_code = models.PositiveSmallIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'wallet_operations'
+        constraints = [
+            models.UniqueConstraint(fields=['user', 'request_id'], name='wallet_operation_user_request_unique'),
+        ]

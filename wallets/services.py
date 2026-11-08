@@ -4,15 +4,13 @@ from django.db import transaction
 
 from customers.models import Customer
 
-from .models import Wallet, WalletTransaction, WalletType
+from .models import Wallet, WalletTransaction, WalletType, WalletOperation
 
 MAX_BALANCE = Decimal('999999999999999999.99')
 
 
-def change_balance(*, customer, wallet_type_id, kind, amount, ensure_reservation=None):
+def _apply_balance_change(*, customer, wallet_type_id, kind, amount, ensure_reservation=None):
     with transaction.atomic():
-        # Serialize lazy creation for this customer, even across opposite transaction types.
-        Customer.objects.select_for_update().get(pk=customer.pk)
         if ensure_reservation:
             ensure_reservation()
         wallet_type = WalletType.objects.filter(pk=wallet_type_id).first()
@@ -56,4 +54,35 @@ def change_balance(*, customer, wallet_type_id, kind, amount, ensure_reservation
             }, 201
         if ensure_reservation:
             ensure_reservation()
+        return body, status_code
+
+
+def operation_fingerprint(wallet_type_id, kind, amount):
+    return {'wallet_type_id': wallet_type_id, 'type': kind, 'amount': format(amount, '.2f')}
+
+
+def find_operation_result(customer, request_id, fingerprint):
+    operation = WalletOperation.objects.filter(user=customer, request_id=request_id).first()
+    if operation is None:
+        return None
+    if operation.fingerprint != fingerprint:
+        return {'error': 'Idempotency-Key was already used with different transaction details.'}, 409
+    return operation.response, operation.status_code
+
+
+def change_balance(*, customer, wallet_type_id, kind, amount, request_id, ensure_reservation=None):
+    fingerprint = operation_fingerprint(wallet_type_id, kind, amount)
+    with transaction.atomic():
+        Customer.objects.select_for_update().get(pk=customer.pk)
+        previous = find_operation_result(customer, request_id, fingerprint)
+        if previous is not None:
+            return previous
+        body, status_code = _apply_balance_change(
+            customer=customer, wallet_type_id=wallet_type_id, kind=kind,
+            amount=amount, ensure_reservation=ensure_reservation,
+        )
+        WalletOperation.objects.create(
+            user=customer, request_id=request_id, fingerprint=fingerprint,
+            transaction_id=body.get('transaction_id'), response=body, status_code=status_code,
+        )
         return body, status_code

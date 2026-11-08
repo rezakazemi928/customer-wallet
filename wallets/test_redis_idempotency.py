@@ -1,4 +1,5 @@
 import time
+from decimal import Decimal
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 from types import SimpleNamespace
@@ -19,11 +20,15 @@ class RedisIdempotencyTests(SimpleTestCase):
     def setUp(self):
         self.redis = fakeredis.FakeRedis(decode_responses=True)
         self.request = SimpleNamespace(customer=SimpleNamespace(pk=uuid4()),
-                                       transaction_data={'type': 'INCREASED'})
-        self.key = transaction_cache_key(self.request.customer.pk, 1, 'INCREASED')
+                                       transaction_data={'type': 'INCREASED', 'amount': Decimal('10.00')},
+                                       headers={'Idempotency-Key': str(uuid4())})
+        self.key = transaction_cache_key(self.request.customer.pk, self.request.headers['Idempotency-Key'])
         patcher = patch('wallets.decorators.get_redis', return_value=self.redis)
         patcher.start()
         self.addCleanup(patcher.stop)
+        lookup = patch('wallets.decorators.find_operation_result', return_value=None)
+        lookup.start()
+        self.addCleanup(lookup.stop)
 
     def test_completed_key_expires_after_three_minutes(self):
         @redis_wallet_idempotency

@@ -1,7 +1,7 @@
 import json
 import logging
 from functools import lru_cache, wraps
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.http import JsonResponse
@@ -9,6 +9,7 @@ from redis import Redis
 from redis.exceptions import RedisError
 
 from .forms import WalletTransactionForm
+from .services import find_operation_result, operation_fingerprint
 
 logger = logging.getLogger(__name__)
 IN_PROGRESS_TTL = 120
@@ -39,8 +40,8 @@ def get_redis():
                           socket_connect_timeout=2, socket_timeout=2)
 
 
-def transaction_cache_key(customer_id, wallet_type_id, kind):
-    return f'wallet-type-operation:{customer_id}:{wallet_type_id}:{kind}'
+def transaction_cache_key(customer_id, request_id):
+    return f'wallet-request:{customer_id}:{request_id}'
 
 
 def validate_transaction_request(view):
@@ -74,13 +75,37 @@ def redis_wallet_idempotency(view):
     """Requires authenticated customer and validated transaction_data on request."""
     @wraps(view)
     def wrapped(request, wallet_type_id, *args, **kwargs):
+        try:
+            request_id = UUID(request.headers.get('Idempotency-Key', ''))
+        except (ValueError, TypeError, AttributeError):
+            return JsonResponse({'error': 'A valid UUID Idempotency-Key header is required.'}, status=400)
+        request.wallet_request_id = request_id
+        fingerprint = operation_fingerprint(
+            wallet_type_id, request.transaction_data['type'], request.transaction_data['amount'],
+        )
+
+        def saved_response():
+            result = find_operation_result(request.customer, request_id, fingerprint)
+            if result is None:
+                return None
+            body, status = result
+            response = JsonResponse(body, status=status)
+            response['Cache-Control'] = 'no-store'
+            return response
+
+        previous = saved_response()
+        if previous is not None:
+            return previous
         client = get_redis()
-        key = transaction_cache_key(request.customer.pk, wallet_type_id, request.transaction_data['type'])
+        key = transaction_cache_key(request.customer.pk, request_id)
         owner = f'IN_PROGRESS:{uuid4()}'
         try:
             if not client.set(key, owner, nx=True, ex=IN_PROGRESS_TTL):
+                previous = saved_response()
+                if previous is not None:
+                    return previous
                 return JsonResponse(
-                    {'error': 'A request for this wallet and transaction type is already in progress or was recently processed.'},
+                    {'error': 'This request ID is already being processed. Retry with the same Idempotency-Key.'},
                     status=409,
                 )
         except RedisError:
@@ -90,7 +115,6 @@ def redis_wallet_idempotency(view):
             if client.get(key) != owner:
                 raise ReservationExpired
 
-        # Recheck after waiting for the wallet row lock, before changing money.
         request.ensure_wallet_reservation = ensure_reservation
         try:
             response = view(request, wallet_type_id, *args, **kwargs)
@@ -105,7 +129,6 @@ def redis_wallet_idempotency(view):
                 if not client.eval(FINISH_SCRIPT, 1, key, owner, COMPLETED_TTL):
                     logger.warning('Wallet request completed after losing its Redis reservation.')
         except RedisError:
-            # The database may already have committed: preserve its actual response.
             logger.exception('Could not finalize Redis wallet request reservation.')
         return response
     return wrapped
