@@ -125,9 +125,10 @@ The database enforces valid types, valid statuses, and `amount > 0`. Although th
 | POST | `/api/customers/register/` | Public | Register using mobile, national code, and password |
 | POST | `/api/customers/login/` | Public | Verify mobile and password; return an access token |
 | GET | `/api/wallets/` | Bearer JWT | List the authenticated customer's wallets |
+| GET | `/api/wallets/transactions/?wallet_type_id=<id>` | Bearer JWT | Transaction history, optionally filtered by wallet type |
 | POST | `/api/wallets/types/<wallet_type_id>/transactions/` | Bearer JWT | Increase or decrease a wallet balance |
 
-Wallets are created on demand during transactions for types with automatic creation enabled. Profile updates and transaction-history listing do not yet have public endpoints.
+Wallets are created on demand during transactions for types with automatic creation enabled. Profile updates do not yet have a public endpoint.
 
 ### Wallet type versus transaction type
 
@@ -359,3 +360,25 @@ funds and leaves that wallet at zero balance.
 > “Wallet types define creation and withdrawal rules, while each customer owns at most one wallet of each type. The API separates authentication, validation, transaction processing, and storage. Database constraints protect the data, row locks coordinate concurrent balance changes, and Redis coordinates requests in progress, and durable operation records prevent completed retries from changing balances again. The current implementation demonstrates these backend mechanisms while keeping external payments outside its scope.”
 
 Migration 0006 creates wallet_operations for durable request-ID tracking. Apply it before sending requests with Idempotency-Key headers.
+
+## Reading transaction history
+
+```bash
+# All of the authenticated customer's wallets, grouped by wallet type
+curl http://127.0.0.1:8000/api/wallets/transactions/ \
+  -H 'Authorization: Bearer YOUR_ACCESS_TOKEN'
+
+# Only the customer's wallet for the selected type
+curl 'http://127.0.0.1:8000/api/wallets/transactions/?wallet_type_id=1' \
+  -H 'Authorization: Bearer YOUR_ACCESS_TOKEN'
+```
+
+Both responses use a `wallets` array. Each group contains wallet_id,
+wallet_type_id, wallet_type_name, and a transactions array. Transactions include
+id, type, status, amount, created_at, and updated_at, ordered newest first.
+All statuses are included. Existing empty wallets have an empty transactions
+array. If the customer has no wallet of the requested type, wallets is empty;
+reading history never creates wallets. Invalid type IDs return 400.
+
+This endpoint returns the full matching history without pagination. Amounts
+are decimal strings, and only the JWT customer's wallets are queried.

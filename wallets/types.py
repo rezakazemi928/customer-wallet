@@ -29,3 +29,19 @@ class WalletRequest(CustomerRequest):
     transaction_data: TransactionData
     wallet_request_id: UUID
     ensure_wallet_reservation: ReservationCheck
+
+
+class TransactionSummary(TypedDict):
+    id: int
+    type: str
+    status: str
+    amount: str
+    created_at: str
+    updated_at: str
+
+
+class WalletTransactionGroup(TypedDict):
+    wallet_id: int
+    wallet_type_id: int
+    wallet_type_name: str
+    transactions: list[TransactionSummary]
