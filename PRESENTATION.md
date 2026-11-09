@@ -32,14 +32,16 @@ customer-wallet/
 │   ├── models.py           # Customer model and creation manager
 │   ├── forms.py            # Registration validation
 │   ├── views.py            # Registration and login
-│   └── tokens.py           # JWT generation, verification, and authentication decorator
+│   ├── tokens.py           # JWT generation, verification, and authentication decorator
+│   └── tests/              # Model, registration, and login tests
 ├── wallets/
 │   ├── models.py           # WalletType, Wallet, WalletTransaction, and WalletOperation
 │   ├── forms.py            # Transaction type and amount validation
 │   ├── decorators.py       # Request validation and Redis duplicate protection
 │   ├── services.py         # Balance update rules and database transaction
 │   ├── views.py            # Wallet listing and transaction endpoint
-│   └── urls.py             # Wallet routes
+│   ├── urls.py             # Wallet routes
+│   └── tests/              # Models, listing, types, transactions, history, and Redis tests
 ├── requirements.txt        # Runtime dependencies
 ├── requirements-dev.txt    # Runtime dependencies plus Redis testing tools
 └── manage.py
@@ -333,7 +335,17 @@ Tests cover registration, password hashing, JWT validation, wallet ownership, on
 
 ```bash
 pip install -r requirements-dev.txt
-python manage.py test wallets customers
+# All tests (Django discovers each app's tests package)
+python manage.py test
+
+# All wallet tests
+python manage.py test wallets
+
+# One module
+python manage.py test wallets.tests.test_transactions
+
+# Redis tests
+python manage.py test wallets.tests.test_redis_idempotency
 ```
 
 Redis tests use fakeredis with Lua support. PostgreSQL concurrency tests require a PostgreSQL test database and are skipped on SQLite. Local verification so far used SQLite and fakeredis; real PostgreSQL concurrency remains unverified in this session.

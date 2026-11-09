@@ -4,7 +4,7 @@ from django.test import TestCase
 
 from customers.models import Customer
 from customers.tokens import create_access_token
-from .models import Wallet, WalletType, WalletTransaction
+from wallets.models import Wallet, WalletType, WalletTransaction
 
 
 class TransactionHistoryTests(TestCase):

@@ -11,8 +11,8 @@ from django.test import TestCase, TransactionTestCase, skipUnlessDBFeature
 from customers.models import Customer
 from customers.tokens import create_access_token
 
-from .models import Wallet, WalletType, WalletTransaction, WalletOperation
-from .services import change_balance
+from wallets.models import Wallet, WalletType, WalletTransaction, WalletOperation
+from wallets.services import change_balance
 
 
 class TransactionEndpointTests(TestCase):
@@ -130,7 +130,7 @@ class TransactionEndpointTests(TestCase):
         self.assertEqual(self.post().status_code, 409)
 
     def test_reservation_loss_before_commit_rolls_back_money(self):
-        from .decorators import ReservationExpired
+        from wallets.decorators import ReservationExpired
         reservation = Mock(side_effect=[None, None, ReservationExpired])
         with self.assertRaises(ReservationExpired):
             change_balance(

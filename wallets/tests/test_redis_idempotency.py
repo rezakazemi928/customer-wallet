@@ -11,7 +11,7 @@ from django.http import JsonResponse
 from django.test import SimpleTestCase
 from redis.exceptions import ConnectionError
 
-from .decorators import (
+from wallets.decorators import (
     redis_wallet_idempotency, transaction_cache_key,
 )
 
