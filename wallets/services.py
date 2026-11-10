@@ -29,9 +29,12 @@ def _apply_balance_change(
         if wallet is None:
             if not wallet_type.automatic_creation:
                 return {'error': 'Wallet does not exist and automatic creation is disabled.'}, 404
-            Wallet.objects.get_or_create(user=customer, wallet_type=wallet_type)
+            Wallet.objects.get_or_create(user=customer, wallet_type=wallet_type, status=True)
             wallet = Wallet.objects.select_for_update().get(user=customer, wallet_type=wallet_type)
-
+        
+        if not wallet.status:
+            return {'error': 'current wallet is deactivated.'}, 403
+        
         if ensure_reservation:
             ensure_reservation()
 

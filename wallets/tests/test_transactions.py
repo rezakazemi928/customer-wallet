@@ -102,8 +102,6 @@ class TransactionEndpointTests(TestCase):
         self.assertFalse(WalletTransaction.objects.exists())
 
     def test_overflow_returns_error_without_changing_balance(self):
-        # SQLite cannot represent the model's maximum NUMERIC(20, 2) exactly.
-        # Use a smaller limit to exercise the same overflow branch on every backend.
         with patch('wallets.services.MAX_BALANCE', Decimal('100.00')):
             response = self.post(kind='INCREASED', amount='0.01')
         self.assertEqual(response.status_code, 400)
